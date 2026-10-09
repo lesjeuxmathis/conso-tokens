@@ -12,12 +12,22 @@ export const ELEMENTS = [
   { id: 'ligne-reinit', label: 'Compte à rebours de la fenêtre 5 h', where: 'ligne' },
   { id: 'ligne-tokens', label: 'Tokens de la session', where: 'ligne' },
   { id: 'ligne-prix', label: 'Prix', where: 'ligne' },
+  { id: 'bande-tour', label: 'Tour de Claude : chrono, tokens, ce qu’il fait', where: 'bande' },
+  { id: 'bande-conso', label: 'Forfait, tokens et prix de la session', where: 'bande' },
 ] as const
 
 export type ElementId = (typeof ELEMENTS)[number]['id']
 export type Affichage = Record<string, boolean>
 
-export const WHERE_LABELS = { panneau: 'Panneau', partout: 'Partout', ligne: 'Ligne d’état' } as const
+export const WHERE_LABELS = {
+  panneau: 'Panneau',
+  partout: 'Partout',
+  ligne: 'Ligne d’état',
+  bande: 'Bande au-dessus de la saisie (toujours visible)',
+} as const
+
+/** L'ordre des groupes dans /conso affichage et dans l'écran Affichage. */
+export const WHERES = ['bande', 'panneau', 'ligne', 'partout'] as const
 
 /** Tout est affiché tant que la personne n'a rien masqué. */
 export const isShown = (affichage: Affichage, id: ElementId) => affichage[id] !== false
@@ -32,6 +42,8 @@ const ALIASES: Record<string, ElementId> = {
   requete: 'derniere',
   source: 'tarifs',
   statut: 'ligne-forfait',
+  bande: 'bande-tour',
+  chrono: 'bande-tour',
   rebours: 'ligne-reinit',
 }
 
@@ -56,7 +68,7 @@ export function setShown(affichage: Affichage, ids: ReadonlyArray<ElementId | 't
 /** L'état de chaque élément, pour /conso affichage. */
 export function affichageText(affichage: Affichage): string {
   const lines = ['Affichage de Conso Claude :']
-  for (const where of ['panneau', 'partout', 'ligne'] as const) {
+  for (const where of WHERES) {
     lines.push('', `${WHERE_LABELS[where]} :`)
     for (const element of ELEMENTS.filter(e => e.where === where)) {
       lines.push(`  ${isShown(affichage, element.id) ? '☑' : '☐'} ${element.id} · ${element.label}`)

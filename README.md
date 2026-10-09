@@ -2,6 +2,7 @@
 
 Un mod pour Claude Code (terminal et onglet Code de l’app de bureau) qui montre **en direct** :
 
+- **une bande toujours visible au-dessus de la zone de saisie**, qui ne disparaît jamais, même quand Claude écrit : le chrono du tour, les tokens écrits, ce que fait Claude (« Réflexion en cours », « Outil : lance une commande »…), puis le résumé du dernier tour, et en dessous ton forfait et la conso de la session ;
 - **ton forfait** : le % utilisé de la fenêtre de 5 h, de la semaine (et du crédit s’il y en a), avec le compte à rebours et l’heure de réinitialisation, plus une alerte à 80, 90 et 100 % ;
 - **une estimation de la taille de ta fenêtre en tokens**, déduite de ce que tu consommes (Anthropic ne publie pas de quota en tokens, seulement des %) ;
 - **les tokens de la session**, requête par requête (entrée, sortie, cache lu, cache écrit), et le remplissage du contexte ;
@@ -39,7 +40,7 @@ Testé avec Claude Code 2.1.293. Le mod utilise les « function hooks » de Clau
 | `/conso-session liste` | Les 12 dernières sessions |
 | `/conso-session <début de l’id>` | Consommation exacte d’une autre session |
 
-Le panneau a aussi un bouton **Affichage** pour cocher ce que tu veux voir, dans le panneau et dans la ligne d’état.
+Le panneau a aussi un bouton **Affichage** pour cocher ce que tu veux voir : dans la bande, le panneau et la ligne d’état (`/conso masquer bande-tour`, par exemple).
 
 Options à l’installation (facultatives) : `--config prix=false`, `--config devise=eur`, `--config ouvrirAuDemarrage=false`.
 

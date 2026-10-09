@@ -229,3 +229,72 @@ test('choisir l’affichage : mots acceptés et réglages', () => {
   expect(isShown(hidden, 'forfait')).toBe(true)
   expect(isShown(setShown(hidden, ['tout'], true), 'prix')).toBe(true)
 })
+
+const BAND = {
+  plugin: 'conso-tokens',
+  component: 'AbovePrompt',
+  props: {
+    hasSurvey: false,
+    isWorking: true,
+    maxRows: 10,
+    bodyColumns: 120,
+    scroll: { offset: 0, bodyRows: 10 },
+    view: {},
+  },
+} as const
+
+test('la bande au-dessus de la saisie reste affichée pendant et après le tour', async ($, on) => {
+  mock.store(on)
+  on('ui.status', async () => ({ value: undefined }))
+  on('ui.toast', async () => ({ value: undefined }))
+  on('turn.start', async (_$, e) => ({ turnId: e.turnId }))
+  on('turn.step', async function* () {
+    yield { kind: 'thinking', index: 0, text: '' }
+    return {
+      turnId: 't1',
+      index: 0,
+      answer: '',
+      toolUses: [],
+      stopReason: 'end_turn',
+      usage: {
+        model: 'claude-opus-5-5',
+        input_tokens: 10,
+        output_tokens: 22_700,
+        cache_read_input_tokens: 0,
+        cache_creation_input_tokens: 0,
+      },
+    }
+  })
+  on('turn.complete', async (_$, e) => ({ text: e.answer, reason: 'answer', category: null, explanation: null }))
+
+  const sees = async (pattern: RegExp) => {
+    for (const surface of ['terminal', 'desktop'] as const) {
+      const ui = await $.ui.mount({ ...BAND, surface })
+      expect(await ui.find({ text: pattern })).toBeDefined()
+      await ui.unmount()
+    }
+  }
+
+  await $.turn.start({ text: 'salut', turnId: 't1' })
+  await sees(/Envoi de la demande/)
+
+  const step = $.turn.step({ turnId: 't1', index: 0, model: 'claude-opus-5-5', messageCount: 1 })
+  await step.next()
+  await sees(/Réflexion en cours/)
+  for await (const _chunk of step) {
+    // la fin du flux
+  }
+  await sees(/22,7 k tokens écrits/)
+
+  await $.turn.complete({
+    reason: 'answer',
+    category: null,
+    explanation: null,
+    answer: 'ok',
+    durationMs: 957_000,
+    isAborted: false,
+    turnId: 't1',
+  })
+  await sees(/Dernier tour : 15 min 57 s · 22,7 k tokens écrits · Terminé à \d\d:\d\d/)
+  await sees(/session 22,7 k tokens/)
+})

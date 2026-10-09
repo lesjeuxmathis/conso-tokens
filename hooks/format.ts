@@ -39,6 +39,14 @@ export function duration(ms: number): string {
   return `${m} min`
 }
 
+/** Un chrono à la seconde : 24 s, 15 min 57 s, 1 h 02 min. */
+export function chrono(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  if (s < 60) return `${s} s`
+  if (s < 3600) return `${Math.floor(s / 60)} min ${pad(s % 60)} s`
+  return `${Math.floor(s / 3600)} h ${pad(Math.floor((s % 3600) / 60))} min`
+}
+
 /** 18:30 le jour même, sinon « mar. 14/10 09:00 ». */
 export function clock(ts: number, now: number): string {
   const d = new Date(ts)

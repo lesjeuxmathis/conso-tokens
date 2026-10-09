@@ -67,6 +67,17 @@ export type ConsoChange = { usdPerEur: number; date: string; fetchedAt: number }
 
 export type ConsoDevise = 'usd' | 'eur' | 'usd+eur'
 
+/** Le tour de Claude en cours, ou le dernier : de quoi dessiner la bande. */
+export type ConsoTour = {
+  startedAt: number
+  /** Absent tant que le tour tourne. */
+  endedAt?: number
+  /** Ce que fait Claude, en clair : « Réflexion en cours », « Outil : Bash »… */
+  etat: string
+  /** Tokens des requêtes du tour (sous-agents compris), par modèle. */
+  totals: ConsoTotals
+}
+
 declare module 'claude-code' {
   interface PluginState {
     'conso-tokens': {
@@ -86,6 +97,9 @@ declare module 'claude-code' {
       /** L'écran « Affichage » du panneau est ouvert. */
       reglages: boolean
       devise: ConsoDevise
+      tour: ConsoTour | null
+      /** L'heure, réécrite chaque seconde pendant un tour : fait avancer le chrono. */
+      seconde: number
     }
   }
 }

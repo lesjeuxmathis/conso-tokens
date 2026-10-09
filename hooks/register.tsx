@@ -17,12 +17,13 @@ import type {
   ConsoTarifs,
   ConsoTotals,
 } from '../types'
-import { affichageText, ELEMENTS, elementOf, isShown, setShown, WHERE_LABELS } from './affichage'
+import { affichageText, ELEMENTS, elementOf, isShown, setShown, WHERE_LABELS, WHERES } from './affichage'
 import type { Affichage, ElementId } from './affichage'
 import {
   ago,
   bar,
   barColor,
+  chrono,
   clock,
   comma,
   duration,
@@ -75,6 +76,8 @@ const tarifsErreur = atom({ plugin: 'conso-tokens', key: 'tarifsErreur' } as con
 const affichage = atom({ plugin: 'conso-tokens', key: 'affichage' } as const, {})
 const reglages = atom({ plugin: 'conso-tokens', key: 'reglages' } as const, false)
 const devise = atom({ plugin: 'conso-tokens', key: 'devise' } as const, 'usd+eur')
+const tour = atom({ plugin: 'conso-tokens', key: 'tour' } as const, null)
+const seconde = atom({ plugin: 'conso-tokens', key: 'seconde' } as const, 0)
 
 const reason = (err: unknown) => (err instanceof Error ? err.message : String(err))
 const pct = (p: number) => comma(p, Number.isInteger(p) ? 0 : 1)
@@ -107,15 +110,15 @@ async function priceText($: Dollar, usd: number): Promise<string> {
   return money(usd, await read($, devise), (await read($, change))?.usdPerEur)
 }
 
-async function paintStatus($: Dollar) {
+/** La conso en une ligne (forfait, réinitialisation, tokens, prix), selon `show`. */
+async function consoParts($: Dollar, show: (id: ElementId) => boolean): Promise<string[]> {
   const snap = await read($, snapshot)
-  const shown = await read($, affichage)
   const at = Date.now()
   const parts: string[] = []
   for (const w of snap?.rateLimits ?? []) {
     const left = w.resetsAt ? Date.parse(w.resetsAt) - at : undefined
-    const hasCountdown = isShown(shown, 'ligne-reinit') && left !== undefined && w.kind === 'five_hour'
-    if (!isShown(shown, 'ligne-forfait')) {
+    const hasCountdown = show('ligne-reinit') && left !== undefined && w.kind === 'five_hour'
+    if (!show('ligne-forfait')) {
       if (hasCountdown && left > 0) parts.push(`${kindShort(w.kind)} ↻ ${duration(left)}`)
     } else if (left !== undefined && left <= 0) {
       parts.push(`${kindShort(w.kind)} réinitialisée`)
@@ -123,12 +126,60 @@ async function paintStatus($: Dollar) {
       parts.push(`${kindShort(w.kind)} ${pct(w.percentUsed)} %${hasCountdown ? ` ↻ ${duration(left)}` : ''}`)
     }
   }
-  if (isShown(shown, 'ligne-tokens')) parts.push(`session ${tokens(sumTokens(await read($, totals)))} tokens`)
-  if (isShown(shown, 'prix') && isShown(shown, 'ligne-prix')) {
+  if (show('ligne-tokens')) parts.push(`session ${tokens(sumTokens(await read($, totals)))} tokens`)
+  if (show('prix') && show('ligne-prix')) {
     const cost = await sessionCost($)
     if (cost) parts.push(await priceText($, cost.usd))
   }
+  return parts
+}
+
+async function paintStatus($: Dollar) {
+  const shown = await read($, affichage)
+  const parts = await consoParts($, id => isShown(shown, id))
   $.ui.status(parts.length > 0 ? parts.join(' · ') : undefined)
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  Bash: 'lance une commande',
+  PowerShell: 'lance une commande',
+  Read: 'lit un fichier',
+  Edit: 'modifie un fichier',
+  Write: 'écrit un fichier',
+  Grep: 'cherche dans les fichiers',
+  Glob: 'cherche des fichiers',
+  WebFetch: 'lit une page web',
+  WebSearch: 'cherche sur le web',
+  Agent: 'lance un sous-agent',
+  Skill: 'charge un skill',
+}
+
+const toolEtat = (tool: string) => `Outil : ${TOOL_LABELS[tool] ?? tool}`
+
+/** Le chrono de la bande : une écriture par seconde, seulement pendant un tour. */
+let ticker: { cancel: () => void } | undefined
+
+function startTicker($: Dollar) {
+  if (ticker) return
+  ticker = $.clock.every(1000, () => {
+    void (async () => {
+      const current = await read($, tour)
+      if (!current || current.endedAt !== undefined) return stopTicker()
+      await update($, seconde, () => Date.now())
+    })()
+  })
+}
+
+function stopTicker() {
+  ticker?.cancel()
+  ticker = undefined
+}
+
+/** Change ce que la bande dit que Claude fait ; n'écrit que si ça change. */
+async function setEtat($: Dollar, etat: string) {
+  const current = await read($, tour)
+  if (!current || current.endedAt !== undefined || current.etat === etat) return
+  await update($, tour, t => (t && t.endedAt === undefined ? { ...t, etat } : t))
 }
 
 /** Calibre la taille des fenêtres : tokens dépensés ici / points de % gagnés. */
@@ -476,6 +527,8 @@ export const register: Register = (on, options) => {
     $.clock.every(TICK_MS, () => {
       void update($, now, () => Date.now()).then(() => paintStatus($))
     })
+    const running = await read($, tour)
+    if (running && running.endedAt === undefined) startTicker($)
 
     void (async () => {
       await absorb($, await $.session.usage()).catch(() => undefined)
@@ -494,8 +547,38 @@ export const register: Register = (on, options) => {
     return result
   })
 
+  on('turn.start', async ($, e, next) => {
+    try {
+      await update($, tour, () => ({ startedAt: Date.now(), etat: 'Envoi de la demande', totals: {} }))
+      await update($, seconde, () => Date.now())
+      startTicker($)
+    } catch {
+      // La bande ne doit jamais gêner le tour.
+    }
+    return next(e)
+  })
+
   on('turn.step', async function* ($, e, next) {
-    const result = yield* next(e)
+    const isMain = e.agentId === undefined
+    const stream = next(e)
+    let etat = ''
+    const follow = async (now: string) => {
+      if (now === etat) return
+      etat = now
+      try {
+        await setEtat($, now)
+      } catch {
+        // idem : rien ne bloque la réponse
+      }
+    }
+    await follow(isMain ? 'Attente de l’API' : 'Un sous-agent travaille')
+    for await (const chunk of stream) {
+      if (isMain && chunk.kind === 'thinking') await follow('Réflexion en cours')
+      else if (isMain && chunk.kind === 'text') await follow('Écrit la réponse')
+      else if (isMain && chunk.kind === 'tool') await follow(`Prépare un outil : ${TOOL_LABELS[chunk.name] ?? chunk.name}`)
+      yield chunk
+    }
+    const result = await stream.result
     try {
       const usage = result.usage
       if (usage) {
@@ -509,12 +592,39 @@ export const register: Register = (on, options) => {
           requests: 1,
         }
         const key = bucketOf(usage.model, one)
-        await update($, totals, all => ({ ...all, [key]: addTotals(all[key] ?? emptyTotals(), one) }))
+        const add = (all: ConsoTotals) => ({ ...all, [key]: addTotals(all[key] ?? emptyTotals(), one) })
+        await update($, totals, add)
+        await update($, tour, t => (t && t.endedAt === undefined ? { ...t, totals: add(t.totals) } : t))
         await update($, last, () => ({ key, usage: one, at: Date.now() }))
         await paintStatus($)
       }
     } catch {
       // Le compte en direct ne doit jamais gêner la réponse du modèle.
+    }
+    return result
+  })
+
+  on('tool.call', async ($, e, next) => {
+    const isMain = e.agentId === undefined
+    if (isMain) await setEtat($, toolEtat(e.tool)).catch(() => undefined)
+    const result = await next(e)
+    if (isMain) await setEtat($, 'Attente de l’API').catch(() => undefined)
+    return result
+  }).catch(($, e, next) => next(e))
+
+  on('turn.complete', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined) {
+      try {
+        const etat = e.isAborted ? 'Interrompu' : 'Terminé'
+        const endedAt = Date.now()
+        await update($, tour, t =>
+          t ? { ...t, etat, endedAt, startedAt: t.endedAt === undefined ? endedAt - e.durationMs : t.startedAt } : t,
+        )
+        stopTicker()
+      } catch {
+        // La bande garde son dernier état.
+      }
     }
     return result
   })
@@ -600,6 +710,51 @@ export const register: Register = (on, options) => {
     return { text: await reportText($, report, file) }
   })
 
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    const shown = await read($, affichage)
+    const showTour = isShown(shown, 'bande-tour')
+    const showConso = isShown(shown, 'bande-conso')
+    if (e.props.hasSurvey || (!showTour && !showConso)) return next(e)
+
+    const { Box, Text } = $.ui.resolve(e)
+    const current = showTour ? await read($, tour) : null
+    const tick = await read($, seconde)
+    const conso = showConso ? await consoParts($, id => (id === 'prix' ? isShown(shown, 'prix') : true)) : []
+    if (!current && conso.length === 0) return next(e)
+
+    let tourLine: string | undefined
+    let isRunning = false
+    if (current) {
+      isRunning = current.endedAt === undefined
+      const endsAt = current.endedAt ?? Math.max(tick, Date.now())
+      const flat = Object.values(current.totals).reduce(addTotals, emptyTotals())
+      const grid = isShown(shown, 'prix') ? await read($, tarifs) : null
+      const cost = grid ? totalCost(current.totals, grid.models, await read($, share1h)).usd : undefined
+      const price = cost !== undefined && flat.requests > 0 ? ` · ${await priceText($, cost)}` : ''
+      const head = isRunning ? '' : 'Dernier tour : '
+      const tail = isRunning ? current.etat : `${current.etat} à ${clock(endsAt, Date.now())}`
+      tourLine = `${head}${chrono(endsAt - current.startedAt)} · ${tokens(flat.output)} tokens écrits${price} · ${tail}`
+    }
+
+    return (
+      <Box flexDirection="column">
+        {tourLine && (
+          <Text wrap="truncate-end">
+            <Text color={isRunning ? 'yellow' : current?.etat === 'Interrompu' ? 'red' : 'green'}>
+              {isRunning ? '●' : current?.etat === 'Interrompu' ? '■' : '✓'}
+            </Text>{' '}
+            <Text dimColor={!isRunning}>{tourLine}</Text>
+          </Text>
+        )}
+        {conso.length > 0 && (
+          <Text dimColor wrap="truncate-end">
+            {conso.join(' · ')}
+          </Text>
+        )}
+      </Box>
+    )
+  })
+
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
     const { Box, Text, Button } = $.ui.resolve(e)
     const shown = await read($, affichage)
@@ -609,7 +764,7 @@ export const register: Register = (on, options) => {
       return (
         <Box flexDirection="column" gap={1}>
           <Text bold>Choisir ce qui s’affiche</Text>
-          {(['panneau', 'partout', 'ligne'] as const).map(where => (
+          {WHERES.map(where => (
             <Box flexDirection="column">
               <Text dimColor>{WHERE_LABELS[where]}</Text>
               {ELEMENTS.filter(element => element.where === where).map(element => (
