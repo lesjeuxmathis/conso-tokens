@@ -1,0 +1,31 @@
+{
+  "name": "conso-tokens",
+  "version": "0.1.0",
+  "description": "Consommation de tokens en direct, limites du forfait (5 h, semaine, crédit), heure de réinitialisation et prix au tarif officiel",
+  "author": { "name": "lesjeuxmathis", "url": "https://github.com/lesjeuxmathis" },
+  "homepage": "https://github.com/lesjeuxmathis/conso-tokens",
+  "repository": "https://github.com/lesjeuxmathis/conso-tokens",
+  "license": "MIT",
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "prix": {
+      "type": "boolean",
+      "title": "Afficher le prix en direct",
+      "description": "Calcule le prix de la session avec la grille officielle d'Anthropic (platform.claude.com), relue toutes les 6 h. /conso prix bascule l'affichage.",
+      "default": true
+    },
+    "devise": {
+      "type": "string",
+      "title": "Devise du prix",
+      "description": "usd, eur (taux de référence officiel de la BCE) ou usd+eur.",
+      "options": ["usd", "eur", "usd+eur"],
+      "default": "usd+eur"
+    },
+    "ouvrirAuDemarrage": {
+      "type": "boolean",
+      "title": "Ouvrir le panneau au démarrage",
+      "description": "Ouvre le panneau Conso Claude à chaque session (sauf si tu l'as fermé ; /conso le rouvre).",
+      "default": true
+    }
+  }
+}

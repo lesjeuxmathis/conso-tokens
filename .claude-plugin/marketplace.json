@@ -1,0 +1,6 @@
+{
+  "name": "conso-tokens",
+  "owner": { "name": "lesjeuxmathis", "url": "https://github.com/lesjeuxmathis" },
+  "description": "Le mod Conso Claude : consommation de tokens, forfait et prix officiel en direct dans Claude Code",
+  "plugins": [{ "name": "conso-tokens", "source": "./" }]
+}
