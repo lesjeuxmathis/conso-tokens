@@ -48,6 +48,18 @@ Options à l’installation (facultatives) : `--config prix=false`, `--config de
 - Il lit les chiffres que Claude Code lui donne (tokens, limites, coût) et, pour `/conso-session`, les journaux de session de ton PC (`~/.claude/projects`). Rien de tout ça ne quitte ton PC.
 - Il ne télécharge que deux pages publiques : la grille de prix d’Anthropic et le taux de change du jour de la BCE.
 
+## Mettre à jour
+
+```bash
+claude plugin marketplace update conso-tokens
+```
+
+```bash
+claude plugin update conso-tokens@conso-tokens
+```
+
+La nouvelle version s’applique aux conversations ouvertes après.
+
 ## Désinstaller
 
 ```bash
